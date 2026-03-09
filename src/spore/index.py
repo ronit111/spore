@@ -8,6 +8,7 @@ without parsing YAML on every discovery request.
 from __future__ import annotations
 
 import sqlite3
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -210,7 +211,7 @@ class SporeIndex:
         return [self._row_to_dict(row) for row in rows]
 
     def _fts_search(self, query: str, direction: str | None, limit: int) -> list[dict[str, Any]]:
-        conditions = ["findings_fts MATCH ?"]
+        conditions = ["findings_fts MATCH ?", "f.status = 'published'"]
         params: list[Any] = [query]
 
         if direction:
@@ -243,10 +244,10 @@ class SporeIndex:
         """Trace the lineage of a finding (what it builds on, recursively)."""
         visited: set[str] = set()
         lineage: list[dict[str, Any]] = []
-        queue = [finding_id]
+        queue: deque[str] = deque([finding_id])
 
         while queue and len(visited) < depth:
-            current = queue.pop(0)
+            current = queue.popleft()
             if current in visited:
                 continue
             visited.add(current)

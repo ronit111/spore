@@ -219,6 +219,15 @@ class TestFullTextSearch:
         ids = [r["id"] for r in results]
         assert f1.id in ids
 
+    def test_fts_excludes_retracted(self, index):
+        f1 = make_finding(claim="attention mechanism works well")
+        f2 = make_finding(claim="attention mechanism is flawed", status=FindingStatus.RETRACTED)
+        index.add_finding(f1)
+        index.add_finding(f2)
+        results = index.search(query="attention")
+        assert len(results) == 1
+        assert results[0]["id"] == f1.id
+
 
 # ---------------------------------------------------------------------------
 # get_metrics
