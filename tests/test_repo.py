@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 
-from spore.models import ExperimentStatus, FindingStatus
+from spore.models import ExperimentStatus, Finding, FindingStatus
 from spore.repo import SporeError, SporeRepo
+
+if TYPE_CHECKING:
+    import git
 
 # ---------------------------------------------------------------------------
 # init()
@@ -491,3 +496,126 @@ class TestStatus:
         s = repo.status()
         assert s["experiments"]["running"] == 0
         assert s["experiments"]["completed"] == 1
+
+
+# ---------------------------------------------------------------------------
+# discover_remote()
+# ---------------------------------------------------------------------------
+
+
+def _commit_finding_to_branch(git_repo: git.Repo, branch_name: str, finding: Finding) -> None:
+    """Helper: create a branch with a finding YAML committed to .spore/findings/."""
+    original_branch = git_repo.active_branch.name
+    git_repo.create_head(branch_name)
+    git_repo.heads[branch_name].checkout()
+
+    spore_findings_dir = git_repo.working_dir + "/.spore/findings"
+    import os
+
+    os.makedirs(spore_findings_dir, exist_ok=True)
+    finding_path = spore_findings_dir + f"/{finding.id}.yaml"
+    with open(finding_path, "w") as f:
+        f.write(finding.to_yaml())
+
+    git_repo.index.add([finding_path])
+    git_repo.index.commit(f"Add finding {finding.id}")
+    git_repo.heads[original_branch].checkout()
+
+
+class TestDiscoverRemote:
+    def test_discovers_findings_from_spore_branch(self, spore_repo):
+        """discover_remote finds findings on spore/ prefixed branches."""
+        finding = Finding(
+            experiment_id="exp-remote1",
+            agent_id="remote-agent",
+            direction="attention-variants",
+            claim="Remote finding on spore branch",
+            significance=0.8,
+        )
+        _commit_finding_to_branch(
+            spore_repo.git_repo, "spore/remote-agent/attention-variants", finding
+        )
+        results = spore_repo.discover_remote()
+        assert len(results) >= 1
+        ids = [f.id for f in results]
+        assert finding.id in ids
+
+    def test_ignores_non_spore_branches(self, spore_repo):
+        """discover_remote skips branches without spore/ or origin/ prefix."""
+        finding = Finding(
+            experiment_id="exp-feature",
+            agent_id="dev-agent",
+            direction="feature-work",
+            claim="Finding on a feature branch",
+            significance=0.5,
+        )
+        _commit_finding_to_branch(spore_repo.git_repo, "feature/my-feature", finding)
+        results = spore_repo.discover_remote()
+        ids = [f.id for f in results]
+        assert finding.id not in ids
+
+    def test_filters_by_direction(self, spore_repo):
+        """discover_remote filters by direction when specified."""
+        f1 = Finding(
+            experiment_id="exp-1",
+            agent_id="agent-1",
+            direction="attention-variants",
+            claim="Attention finding",
+            significance=0.7,
+        )
+        f2 = Finding(
+            experiment_id="exp-2",
+            agent_id="agent-2",
+            direction="learning-rate",
+            claim="LR finding",
+            significance=0.6,
+        )
+        _commit_finding_to_branch(spore_repo.git_repo, "spore/agent-1/attention", f1)
+        _commit_finding_to_branch(spore_repo.git_repo, "spore/agent-2/lr", f2)
+        results = spore_repo.discover_remote(direction="attention")
+        ids = [f.id for f in results]
+        assert f1.id in ids
+        assert f2.id not in ids
+
+    def test_indexes_discovered_findings(self, spore_repo):
+        """discover_remote adds findings to the local index."""
+        finding = Finding(
+            experiment_id="exp-idx",
+            agent_id="remote-agent",
+            direction="indexing-test",
+            claim="Should be indexed locally",
+            significance=0.9,
+        )
+        _commit_finding_to_branch(spore_repo.git_repo, "spore/remote-agent/indexing", finding)
+        spore_repo.discover_remote()
+        # Verify it's in the local index
+        results = spore_repo.index.search(direction="indexing-test")
+        assert len(results) >= 1
+        assert results[0]["id"] == finding.id
+
+    def test_returns_empty_when_no_spore_branches(self, spore_repo):
+        """discover_remote returns empty list when no scannable branches exist."""
+        results = spore_repo.discover_remote()
+        assert results == []
+
+    def test_sorted_by_significance(self, spore_repo):
+        """discover_remote returns results sorted by significance descending."""
+        f_low = Finding(
+            experiment_id="exp-low",
+            agent_id="agent-a",
+            direction="sort-test",
+            claim="Low significance",
+            significance=0.2,
+        )
+        f_high = Finding(
+            experiment_id="exp-high",
+            agent_id="agent-b",
+            direction="sort-test",
+            claim="High significance",
+            significance=0.9,
+        )
+        _commit_finding_to_branch(spore_repo.git_repo, "spore/agent-a/sort", f_low)
+        _commit_finding_to_branch(spore_repo.git_repo, "spore/agent-b/sort", f_high)
+        results = spore_repo.discover_remote()
+        assert len(results) == 2
+        assert results[0].significance >= results[1].significance

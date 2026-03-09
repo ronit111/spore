@@ -184,12 +184,12 @@ def experiment_list(direction: str | None, status: str | None) -> None:
     table.add_column("Findings", justify="right")
     table.add_column("Hypothesis")
 
+    status_style = {
+        ExperimentStatus.RUNNING: "[green]running[/green]",
+        ExperimentStatus.COMPLETED: "[blue]completed[/blue]",
+        ExperimentStatus.ABANDONED: "[dim]abandoned[/dim]",
+    }
     for exp in experiments:
-        status_style = {
-            ExperimentStatus.RUNNING: "[green]running[/green]",
-            ExperimentStatus.COMPLETED: "[blue]completed[/blue]",
-            ExperimentStatus.ABANDONED: "[dim]abandoned[/dim]",
-        }
         table.add_row(
             exp.id,
             exp.direction,
