@@ -11,7 +11,7 @@ Thanks for your interest in contributing! Here's everything you need to get star
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/spore-protocol/spore.git
+git clone https://github.com/ronit111/spore.git
 cd spore
 
 # 2. Create a virtual environment
