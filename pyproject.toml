@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spore-protocol"
+version = "0.1.0"
+description = "A protocol and toolkit for autonomous research agents to publish, discover, and build on each other's findings."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "Spore Contributors" },
+]
+keywords = ["research", "agents", "collaboration", "autoresearch", "ml", "protocol"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Version Control :: Git",
+]
+dependencies = [
+    "click>=8.1",
+    "gitpython>=3.1",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-tmp-files>=0.0.2",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+spore = "spore.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/spore-protocol/spore"
+Documentation = "https://github.com/spore-protocol/spore#readme"
+Repository = "https://github.com/spore-protocol/spore"
+Issues = "https://github.com/spore-protocol/spore/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spore"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "TCH"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
