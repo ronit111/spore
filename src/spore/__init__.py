@@ -20,8 +20,9 @@ other's findings through a Git-native, decentralized protocol.
     results = repo.discover(direction="attention")
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
+from spore.federation import FederationPeer, FederationRegistry
 from spore.models import (
     Artifact,
     ArtifactType,
@@ -34,6 +35,7 @@ from spore.models import (
     SporeConfig,
 )
 from spore.repo import SporeRepo
+from spore.watch import SporeWatcher
 
 __all__ = [
     "Artifact",
@@ -42,8 +44,11 @@ __all__ = [
     "Evidence",
     "Experiment",
     "ExperimentStatus",
+    "FederationPeer",
+    "FederationRegistry",
     "Finding",
     "FindingStatus",
     "SporeConfig",
     "SporeRepo",
+    "SporeWatcher",
 ]

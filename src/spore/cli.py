@@ -388,6 +388,7 @@ def finding_show(finding_id: str) -> None:
 @click.option("--metric-min", type=float, help="Minimum metric value.")
 @click.option("--min-significance", type=float, help="Minimum significance score.")
 @click.option("--remote", "-r", is_flag=True, help="Also scan remote branches.")
+@click.option("--federated", "-f", is_flag=True, help="Also scan federation peers.")
 @click.option("--limit", "-l", type=int, default=20, help="Max results.")
 def discover(
     query: str | None,
@@ -398,12 +399,13 @@ def discover(
     metric_min: float | None,
     min_significance: float | None,
     remote: bool,
+    federated: bool,
     limit: int,
 ) -> None:
     """Discover findings from other agents.
 
     Search the local index for relevant research findings. Use --remote
-    to also scan remote branches for findings not yet indexed locally.
+    to also scan remote branches, or --federated to scan federation peers.
     """
     repo = get_repo()
 
@@ -413,6 +415,13 @@ def discover(
         if remote_findings:
             n = len(remote_findings)
             console.print(f"[dim]Indexed {n} findings from remote branches.[/dim]\n")
+
+    if federated:
+        with console.status("[bold blue]Scanning federation peers..."):
+            fed_findings = repo.discover_federated(direction=direction, limit=limit)
+        if fed_findings:
+            n = len(fed_findings)
+            console.print(f"[dim]Indexed {n} findings from federation peers.[/dim]\n")
 
     results = repo.discover(
         query=query,
@@ -527,6 +536,169 @@ def direction_list() -> None:
         table.add_row(d.id, d.name, d.description, ", ".join(d.tags))
 
     console.print(table)
+
+
+# ======================================================================
+# Federation
+# ======================================================================
+
+
+@main.group()
+def federation() -> None:
+    """Manage federation with other Spore repositories."""
+
+
+@federation.command("add")
+@click.argument("url")
+@click.option("--name", "-n", help="Friendly name for this peer.")
+@click.option("--direction", "-d", multiple=True, help="Directions this peer covers.")
+def federation_add(url: str, name: str | None, direction: tuple[str, ...]) -> None:
+    """Add a peer repository to the federation."""
+    repo = get_repo()
+    try:
+        result = repo.add_peer(url, name=name, directions=list(direction) if direction else None)
+        console.print(f"[green]Peer added:[/green] {result['name']} ({result['url']})")
+    except SporeError as e:
+        err_console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@federation.command("remove")
+@click.argument("url")
+def federation_remove(url: str) -> None:
+    """Remove a peer from the federation."""
+    repo = get_repo()
+    if repo.remove_peer(url):
+        console.print(f"[green]Peer removed:[/green] {url}")
+    else:
+        console.print(f"[yellow]Peer not found:[/yellow] {url}")
+
+
+@federation.command("list")
+def federation_list() -> None:
+    """List all federation peers."""
+    repo = get_repo()
+    peers = repo.list_peers()
+
+    if not peers:
+        console.print("[dim]No federation peers registered.[/dim]")
+        console.print("Add one with: [bold]spore federation add <url>[/bold]")
+        return
+
+    table = Table(title="Federation Peers", show_lines=False)
+    table.add_column("Name", style="cyan")
+    table.add_column("URL", style="blue")
+    table.add_column("Directions", style="dim")
+
+    for p in peers:
+        dirs = ", ".join(p.get("directions", [])) or "-"
+        table.add_row(p["name"], p["url"], dirs)
+
+    console.print(table)
+
+
+@federation.command("sync")
+def federation_sync() -> None:
+    """Sync all federation peers (fetch latest)."""
+    repo = get_repo()
+    with console.status("[bold blue]Syncing federation peers..."):
+        results = repo.sync_peers()
+
+    if not results:
+        console.print("[dim]No peers to sync.[/dim]")
+        return
+
+    for name in results:
+        console.print(f"  [green]Synced:[/green] {name}")
+    console.print(f"\n[dim]{len(results)} peers synced.[/dim]")
+
+
+@federation.command("discover")
+@click.option("--direction", "-d", help="Filter by direction.")
+@click.option("--limit", "-l", type=int, default=50, help="Max results.")
+def federation_discover(direction: str | None, limit: int) -> None:
+    """Discover findings from all federated peers."""
+    repo = get_repo()
+    with console.status("[bold blue]Discovering from federation peers..."):
+        findings = repo.discover_federated(direction=direction, limit=limit)
+
+    if not findings:
+        console.print("[dim]No findings found from federation peers.[/dim]")
+        return
+
+    table = Table(title=f"Federated Findings ({len(findings)})", show_lines=True)
+    table.add_column("ID", style="cyan", no_wrap=True)
+    table.add_column("Direction", style="blue")
+    table.add_column("Sig", justify="right", style="yellow")
+    table.add_column("Agent", style="dim")
+    table.add_column("Claim")
+
+    for f in findings:
+        table.add_row(
+            f.id,
+            f.direction,
+            f"{f.significance:.1f}",
+            f.agent_id,
+            _truncate(f.claim, 60),
+        )
+
+    console.print(table)
+
+
+# ======================================================================
+# Watch
+# ======================================================================
+
+
+@main.command()
+@click.option("--direction", "-d", help="Only watch this direction.")
+@click.option("--min-significance", type=float, help="Only show findings above this.")
+@click.option("--interval", type=float, default=5.0, help="Poll interval in seconds.")
+def watch(direction: str | None, min_significance: float | None, interval: float) -> None:
+    """Watch for new findings in real-time.
+
+    Polls the repository for new findings and prints them as they appear.
+    Press Ctrl+C to stop.
+    """
+    import signal
+
+    from spore.watch import SporeWatcher
+
+    repo = get_repo()
+
+    def on_finding(finding: object) -> None:
+        console.print(
+            f"\n[green]New finding:[/green] [cyan]{finding.id}[/cyan]\n"
+            f"  Direction:    {finding.direction}\n"
+            f"  Claim:        {finding.claim}\n"
+            f"  Agent:        {finding.agent_id}\n"
+            f"  Significance: [yellow]{finding.significance}[/yellow]"
+        )
+
+    watcher = SporeWatcher(repo, interval=interval)
+    watcher.on_finding(on_finding, direction=direction, min_significance=min_significance)
+    watcher.start()
+
+    console.print(
+        f"[bold blue]Watching for new findings[/bold blue] (interval: {interval}s, Ctrl+C to stop)"
+    )
+    if direction:
+        console.print(f"  Direction filter: {direction}")
+
+    try:
+        signal.pause()
+    except (KeyboardInterrupt, AttributeError):
+        # AttributeError: signal.pause not available on Windows
+        try:
+            while watcher.is_running:
+                import time
+
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
+
+    watcher.stop()
+    console.print("\n[dim]Watcher stopped.[/dim]")
 
 
 # ======================================================================

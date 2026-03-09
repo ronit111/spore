@@ -32,19 +32,23 @@ If all tests pass and ruff reports no errors, you're good to go.
 
 ```
 src/spore/
-├── __init__.py     # Public API exports
-├── models.py       # Protocol data models (Finding, Experiment, Direction)
-├── repo.py         # SporeRepo — main interface, Git operations
-├── index.py        # SQLite FTS5 index for fast local search
-└── cli.py          # Click CLI commands with Rich output
+├── __init__.py       # Public API exports
+├── models.py         # Protocol data models (Finding, Experiment, Direction)
+├── repo.py           # SporeRepo — main interface, Git operations
+├── index.py          # SQLite FTS5 index for fast local search
+├── federation.py     # Cross-repo federation (peer registry, shallow clones)
+├── watch.py          # Event system (poll-based watcher with callbacks)
+└── cli.py            # Click CLI commands with Rich output
 
 tests/
-├── conftest.py     # Shared test fixtures
-├── test_models.py  # Unit tests for protocol models
-├── test_repo.py    # Unit tests for SporeRepo
-├── test_index.py   # Unit tests for SQLite index
-├── test_cli.py     # CLI integration tests
-└── test_e2e.py     # End-to-end workflow tests
+├── conftest.py         # Shared test fixtures
+├── test_models.py      # Unit tests for protocol models
+├── test_repo.py        # Unit tests for SporeRepo
+├── test_index.py       # Unit tests for SQLite index
+├── test_federation.py  # Unit tests for federation
+├── test_watch.py       # Unit tests for event/watch system
+├── test_cli.py         # CLI integration tests
+└── test_e2e.py         # End-to-end workflow tests
 ```
 
 ## Development Workflow

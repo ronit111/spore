@@ -15,6 +15,7 @@ from typing import Any
 
 import git
 
+from spore.federation import FederationRegistry
 from spore.index import SporeIndex
 from spore.models import (
     Direction,
@@ -73,6 +74,7 @@ class SporeRepo:
 
         self._index: SporeIndex | None = None
         self._config: SporeConfig | None = None
+        self._federation: FederationRegistry | None = None
 
     @property
     def is_initialized(self) -> bool:
@@ -98,6 +100,12 @@ class SporeRepo:
             self._index = SporeIndex(self.spore_dir / INDEX_FILE)
         return self._index
 
+    @property
+    def federation(self) -> FederationRegistry:
+        if self._federation is None:
+            self._federation = FederationRegistry(self.spore_dir)
+        return self._federation
+
     # ------------------------------------------------------------------
     # Initialization
     # ------------------------------------------------------------------
@@ -115,7 +123,7 @@ class SporeRepo:
 
         # Write .gitignore for the index db
         gitignore = self.spore_dir / ".gitignore"
-        gitignore.write_text("index.db\n")
+        gitignore.write_text("index.db\n.cache/\n")
 
         config = SporeConfig(
             agent_id=agent_id,
@@ -585,6 +593,90 @@ class SporeRepo:
             },
             "directions": len(directions),
         }
+
+    # ------------------------------------------------------------------
+    # Federation
+    # ------------------------------------------------------------------
+
+    def add_peer(
+        self,
+        url: str,
+        name: str | None = None,
+        directions: list[str] | None = None,
+    ) -> dict[str, str]:
+        """Register a peer repository for federated discovery."""
+        self._ensure_initialized()
+        peer = self.federation.add_peer(url, name=name, directions=directions)
+
+        # Stage federation file
+        fed_path = self.spore_dir / "federation.yaml"
+        if fed_path.exists():
+            self.git_repo.index.add([str(fed_path)])
+            self._try_commit(f"spore: add federation peer '{peer.name}'")
+
+        return {"id": peer.id, "name": peer.name, "url": peer.url}
+
+    def remove_peer(self, url: str) -> bool:
+        """Remove a federation peer by URL."""
+        self._ensure_initialized()
+        removed = self.federation.remove_peer(url)
+        if removed:
+            fed_path = self.spore_dir / "federation.yaml"
+            if fed_path.exists():
+                self.git_repo.index.add([str(fed_path)])
+                self._try_commit(f"spore: remove federation peer '{url}'")
+        return removed
+
+    def list_peers(self) -> list[dict[str, Any]]:
+        """List all federation peers."""
+        return [p.to_dict() for p in self.federation.list_peers()]
+
+    def discover_federated(
+        self,
+        direction: str | None = None,
+        limit: int = 50,
+    ) -> list[Finding]:
+        """Discover findings across all federated peer repositories.
+
+        Syncs peer repos (shallow clone/fetch), scans their findings,
+        indexes them locally, and returns results sorted by significance.
+        """
+        self._ensure_initialized()
+        return self.federation.discover_all(self.index, direction=direction, limit=limit)
+
+    def sync_peers(self) -> dict[str, str]:
+        """Sync all federation peers (fetch latest)."""
+        self._ensure_initialized()
+        results = self.federation.sync_all()
+        return {name: str(path) for name, path in results.items()}
+
+    # ------------------------------------------------------------------
+    # Watch
+    # ------------------------------------------------------------------
+
+    def watch(
+        self,
+        callback: Any,
+        direction: str | None = None,
+        min_significance: float | None = None,
+        interval: float = 5.0,
+    ) -> Any:
+        """Start watching for new findings.
+
+        Returns the SporeWatcher instance. Call watcher.stop() to stop.
+
+        Args:
+            callback: Called with each new Finding.
+            direction: Only watch this direction (substring match).
+            min_significance: Only trigger above this significance.
+            interval: Poll interval in seconds.
+        """
+        from spore.watch import SporeWatcher
+
+        watcher = SporeWatcher(self, interval=interval)
+        watcher.on_finding(callback, direction=direction, min_significance=min_significance)
+        watcher.start()
+        return watcher
 
     # ------------------------------------------------------------------
     # Internal helpers

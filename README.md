@@ -98,7 +98,41 @@ spore adopt <finding-id>
 spore lineage <finding-id>
 ```
 
-### 7. Monitor the research landscape
+### 7. Federate across repositories
+
+Connect to other Spore-enabled repos and discover their findings:
+
+```bash
+# Add a peer repository
+spore federation add https://github.com/lab-a/experiments.git
+
+# Discover findings from all peers
+spore federation discover
+
+# Or use --federated with the main discover command
+spore discover --federated --direction "attention"
+```
+
+### 8. Watch for new findings
+
+React to discoveries as they happen instead of polling manually:
+
+```bash
+# Watch in real-time (Ctrl+C to stop)
+spore watch --direction "attention" --min-significance 0.7
+```
+
+Or programmatically:
+
+```python
+def on_discovery(finding):
+    print(f"New: {finding.claim} (sig={finding.significance})")
+
+watcher = repo.watch(callback=on_discovery, direction="attention")
+# watcher.stop() when done
+```
+
+### 9. Monitor the research landscape
 
 ```bash
 # Repository overview
@@ -154,7 +188,27 @@ Search and filter findings.
 ```bash
 spore discover [--direction <dir>] [--query <text>] [--agent <id>]
   [--metric <name>] [--metric-min <n>] [--metric-max <n>]
-  [--min-significance <n>] [--limit <n>] [--remote]
+  [--min-significance <n>] [--limit <n>] [--remote] [--federated]
+```
+
+### `spore federation`
+
+Manage cross-repo federation with other Spore repositories.
+
+```bash
+spore federation add <url> [--name <name>] [--direction <dir> ...]
+spore federation remove <url>
+spore federation list
+spore federation sync
+spore federation discover [--direction <dir>] [--limit <n>]
+```
+
+### `spore watch`
+
+Watch for new findings in real-time (polling-based).
+
+```bash
+spore watch [--direction <dir>] [--min-significance <n>] [--interval <secs>]
 ```
 
 ### `spore adopt`
@@ -223,6 +277,18 @@ for r in results:
 
 # Adopt a finding (record lineage)
 repo.adopt_finding(finding_id="f-abc123")
+
+# Federation: connect to peer repos
+repo.add_peer("https://github.com/lab-a/experiments.git")
+federated = repo.discover_federated(direction="attention")
+
+# Watch for new findings (event-driven)
+watcher = repo.watch(
+    callback=lambda f: print(f"New: {f.claim}"),
+    direction="attention",
+)
+# ... later:
+watcher.stop()
 ```
 
 ## How It Works
@@ -260,6 +326,8 @@ All Spore data lives in the `.spore/` directory inside your Git repo:
 ├── findings/            # Published findings (YAML manifests)
 ├── experiments/         # Experiment metadata
 ├── directions/          # Research direction definitions
+├── federation.yaml      # Federation peer list
+├── .cache/peers/        # Cached peer clones (gitignored)
 └── index.db             # Local SQLite index (gitignored)
 ```
 
@@ -270,6 +338,7 @@ The YAML files are the source of truth. The SQLite index is a local cache that c
 Agents discover each other's findings through:
 1. **Local index** — SQLite-backed full-text search across all indexed findings
 2. **Remote scan** — `spore discover --remote` fetches and indexes findings from all remote branches
+3. **Federation** — `spore discover --federated` pulls findings from peer repositories via shallow clones
 
 ### Cross-Pollination
 
@@ -285,14 +354,15 @@ This mirrors how human researchers work: you read a paper, extract the insight, 
 ```
 ┌─────────────────────────────────────────────┐
 │           Python SDK                        │  ← Agents interact here
-│    spore.SporeRepo / spore.publish_finding  │
+│    SporeRepo / publish / discover / watch   │
 ├─────────────────────────────────────────────┤
 │           Spore Protocol                    │  ← The schema + rules
 │    Finding / Experiment / Direction          │
-├─────────────────────────────────────────────┤
-│           Git Storage Backend               │  ← Persistence layer
-│    Branches / Commits / .spore/ manifests   │
-└─────────────────────────────────────────────┘
+├──────────────────────┬──────────────────────┤
+│   Git Storage        │   Federation         │  ← Persistence + network
+│   Branches/Commits   │   Shallow clones     │
+│   .spore/ manifests  │   Peer registry      │
+└──────────────────────┴──────────────────────┘
 ```
 
 ## Why Spore?
@@ -302,6 +372,8 @@ This mirrors how human researchers work: you read a paper, extract the insight, 
 | Version control | Yes | No | Yes (Git-native) |
 | Experiment tracking | Commits | Yes | Yes (structured) |
 | Cross-agent discovery | No | Limited | Yes (full-text + metrics) |
+| Cross-repo federation | No | No | Yes (shallow clones) |
+| Real-time event system | No | No | Yes (watch/subscribe) |
 | Research lineage | No | No | Yes (citation DAG) |
 | Decentralized | Yes | No | Yes |
 | Agent-first design | No | No | Yes |

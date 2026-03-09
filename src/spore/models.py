@@ -199,7 +199,7 @@ class Direction(BaseModel):
 class SporeConfig(BaseModel):
     """Repository-level Spore configuration."""
 
-    version: str = "0.1.0"
+    version: str = "0.2.0"
     repo_name: str | None = None
     default_direction: str | None = None
     agent_id: str | None = None
