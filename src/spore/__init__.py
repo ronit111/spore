@@ -20,9 +20,10 @@ other's findings through a Git-native, decentralized protocol.
     results = repo.discover(direction="attention")
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from spore.federation import FederationPeer, FederationRegistry
+from spore.index import compute_earned_significance
 from spore.models import (
     Artifact,
     ArtifactType,
@@ -51,4 +52,5 @@ __all__ = [
     "SporeConfig",
     "SporeRepo",
     "SporeWatcher",
+    "compute_earned_significance",
 ]

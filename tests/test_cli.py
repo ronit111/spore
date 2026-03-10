@@ -824,8 +824,8 @@ class TestDiscover:
             self._setup_with_findings(runner)
             result = runner.invoke(main, ["discover"])
             assert result.exit_code == 0
-            # Rich table truncates; check prefix "attention-"
-            assert "attention-" in result.output
+            # Rich table truncates; check prefix "attenti" (survives column squeeze)
+            assert "attenti" in result.output
 
     def test_discover_filter_by_direction(self):
         runner = CliRunner()
@@ -846,7 +846,7 @@ class TestDiscover:
             )
             result = runner.invoke(main, ["discover", "--direction", "attention-variants"])
             assert result.exit_code == 0
-            assert "attention-" in result.output
+            assert "attenti" in result.output
             # learning-rate should NOT appear when filtered
             assert "learning-rate" not in result.output
 

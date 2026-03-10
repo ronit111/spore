@@ -9,7 +9,7 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from spore.index import SporeIndex
+from spore.index import SporeIndex, compute_earned_significance
 from spore.models import Evidence, Finding, FindingStatus
 
 # ---------------------------------------------------------------------------
@@ -371,3 +371,188 @@ class TestClear:
         results = index.search()
         assert len(results) == 1
         assert results[0]["claim"] == "new"
+
+
+# ---------------------------------------------------------------------------
+# compute_earned_significance (unit function)
+# ---------------------------------------------------------------------------
+
+
+class TestComputeEarnedSignificance:
+    def test_zero_adoptions_returns_self_reported(self):
+        assert compute_earned_significance(0.5, 0) == 0.5
+
+    def test_negative_adoptions_returns_self_reported(self):
+        assert compute_earned_significance(0.7, -1) == 0.7
+
+    def test_one_adoption_adds_bonus(self):
+        result = compute_earned_significance(0.5, 1)
+        assert result > 0.5
+        assert result == pytest.approx(0.6, abs=0.01)
+
+    def test_three_adoptions(self):
+        result = compute_earned_significance(0.5, 3)
+        assert result == pytest.approx(0.7, abs=0.01)
+
+    def test_seven_adoptions(self):
+        result = compute_earned_significance(0.5, 7)
+        assert result == pytest.approx(0.8, abs=0.01)
+
+    def test_fifteen_adoptions(self):
+        result = compute_earned_significance(0.5, 15)
+        assert result == pytest.approx(0.9, abs=0.01)
+
+    def test_capped_at_one(self):
+        result = compute_earned_significance(0.9, 1000)
+        assert result == 1.0
+
+    def test_low_self_reported_with_high_adoption(self):
+        result = compute_earned_significance(0.1, 31)
+        assert result == pytest.approx(0.6, abs=0.01)
+
+    def test_zero_self_reported_zero_adoptions(self):
+        assert compute_earned_significance(0.0, 0) == 0.0
+
+    def test_one_self_reported_zero_adoptions(self):
+        assert compute_earned_significance(1.0, 0) == 1.0
+
+    def test_one_self_reported_with_adoptions(self):
+        assert compute_earned_significance(1.0, 10) == 1.0
+
+    def test_monotonically_increasing(self):
+        """More adoptions always means equal or higher earned significance."""
+        prev = 0.0
+        for n in range(20):
+            cur = compute_earned_significance(0.5, n)
+            assert cur >= prev
+            prev = cur
+
+
+# ---------------------------------------------------------------------------
+# get_adoption_count
+# ---------------------------------------------------------------------------
+
+
+class TestGetAdoptionCount:
+    def test_no_adopters(self, index):
+        f = make_finding(claim="root")
+        index.add_finding(f)
+        assert index.get_adoption_count(f.id) == 0
+
+    def test_one_adopter(self, index):
+        parent = make_finding(claim="parent")
+        child = make_finding(claim="child", builds_on=[parent.id])
+        index.add_finding(parent)
+        index.add_finding(child)
+        assert index.get_adoption_count(parent.id) == 1
+
+    def test_multiple_adopters(self, index):
+        parent = make_finding(claim="root finding")
+        child1 = make_finding(claim="child 1", builds_on=[parent.id])
+        child2 = make_finding(claim="child 2", builds_on=[parent.id])
+        child3 = make_finding(claim="child 3", builds_on=[parent.id])
+        index.add_finding(parent)
+        index.add_finding(child1)
+        index.add_finding(child2)
+        index.add_finding(child3)
+        assert index.get_adoption_count(parent.id) == 3
+
+    def test_retracted_adopters_not_counted(self, index):
+        parent = make_finding(claim="root")
+        child = make_finding(
+            claim="retracted child",
+            builds_on=[parent.id],
+            status=FindingStatus.RETRACTED,
+        )
+        index.add_finding(parent)
+        index.add_finding(child)
+        assert index.get_adoption_count(parent.id) == 0
+
+    def test_nonexistent_finding(self, index):
+        assert index.get_adoption_count("f-nonexistent") == 0
+
+    def test_multi_parent_counted_once(self, index):
+        """A finding that builds on two parents counts as one adoption for each."""
+        parent_a = make_finding(claim="parent a")
+        parent_b = make_finding(claim="parent b")
+        child = make_finding(claim="dual parent", builds_on=[parent_a.id, parent_b.id])
+        index.add_finding(parent_a)
+        index.add_finding(parent_b)
+        index.add_finding(child)
+        assert index.get_adoption_count(parent_a.id) == 1
+        assert index.get_adoption_count(parent_b.id) == 1
+
+
+# ---------------------------------------------------------------------------
+# get_earned_significance
+# ---------------------------------------------------------------------------
+
+
+class TestGetEarnedSignificance:
+    def test_no_adopters(self, index):
+        f = make_finding(claim="standalone", significance=0.7)
+        index.add_finding(f)
+        assert index.get_earned_significance(f.id) == 0.7
+
+    def test_with_adopters(self, index):
+        parent = make_finding(claim="root", significance=0.5)
+        child = make_finding(claim="child", builds_on=[parent.id])
+        index.add_finding(parent)
+        index.add_finding(child)
+        earned = index.get_earned_significance(parent.id)
+        assert earned > 0.5
+        assert earned == pytest.approx(0.6, abs=0.01)
+
+    def test_nonexistent_finding_returns_zero(self, index):
+        assert index.get_earned_significance("f-nonexistent") == 0.0
+
+
+# ---------------------------------------------------------------------------
+# search results include earned significance
+# ---------------------------------------------------------------------------
+
+
+class TestSearchEarnedSignificance:
+    def test_search_includes_earned_fields(self, index):
+        f = make_finding(claim="test", significance=0.5)
+        index.add_finding(f)
+        results = index.search()
+        assert len(results) == 1
+        assert "earned_significance" in results[0]
+        assert "adoption_count" in results[0]
+        assert results[0]["adoption_count"] == 0
+        assert results[0]["earned_significance"] == 0.5
+
+    def test_search_earned_significance_with_adoption(self, index):
+        parent = make_finding(claim="parent finding", significance=0.5)
+        child = make_finding(claim="child finding", builds_on=[parent.id])
+        index.add_finding(parent)
+        index.add_finding(child)
+        results = index.search()
+        parent_result = next(r for r in results if r["id"] == parent.id)
+        assert parent_result["adoption_count"] == 1
+        assert parent_result["earned_significance"] > 0.5
+
+    def test_search_sorted_by_earned_significance(self, index):
+        """A low-self-reported finding with many adoptions should rank above a
+        high-self-reported finding with no adoptions (when earned > raw)."""
+        popular = make_finding(claim="popular", significance=0.4)
+        niche = make_finding(claim="niche", significance=0.6)
+        # Give 'popular' 7 adopters (bonus ~0.3 → earned ~0.7)
+        index.add_finding(popular)
+        index.add_finding(niche)
+        for i in range(7):
+            adopter = make_finding(claim=f"adopter {i}", builds_on=[popular.id])
+            index.add_finding(adopter)
+        results = index.search()
+        # popular (earned ~0.7) should rank above niche (earned 0.6)
+        ids = [r["id"] for r in results]
+        assert ids.index(popular.id) < ids.index(niche.id)
+
+    def test_fts_search_includes_earned_fields(self, index):
+        f = make_finding(claim="attention mechanism", significance=0.6)
+        index.add_finding(f)
+        results = index.search(query="attention")
+        assert len(results) == 1
+        assert "earned_significance" in results[0]
+        assert "adoption_count" in results[0]

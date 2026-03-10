@@ -7,6 +7,7 @@ without parsing YAML on every discovery request.
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from collections import deque
 from typing import TYPE_CHECKING, Any
@@ -20,6 +21,21 @@ if TYPE_CHECKING:
 # Using a unit separator (ASCII 31) instead of comma to avoid
 # corruption when list items contain commas.
 _LIST_SEP = "\x1f"
+
+
+def compute_earned_significance(self_reported: float, adoption_count: int) -> float:
+    """Compute earned significance from self-reported score and adoption count.
+
+    New findings start at their self-reported significance. As other agents
+    adopt (build on) a finding, its earned significance grows logarithmically.
+    A finding can never drop below its self-reported score.
+
+    Formula: min(1.0, self_reported + 0.1 * log2(1 + adoption_count))
+    """
+    if adoption_count <= 0:
+        return self_reported
+    bonus = 0.1 * math.log2(1 + adoption_count)
+    return min(1.0, self_reported + bonus)
 
 
 class SporeIndex:
@@ -168,7 +184,7 @@ class SporeIndex:
             List of finding dicts with metrics attached.
         """
         if query:
-            return self._fts_search(query, direction, limit)
+            return self._enrich_with_earned_significance(self._fts_search(query, direction, limit))
 
         conditions: list[str] = ["f.status = 'published'"]
         params: list[Any] = []
@@ -208,7 +224,7 @@ class SporeIndex:
             params,
         ).fetchall()
 
-        return [self._row_to_dict(row) for row in rows]
+        return self._enrich_with_earned_significance([self._row_to_dict(row) for row in rows])
 
     def _fts_search(self, query: str, direction: str | None, limit: int) -> list[dict[str, Any]]:
         conditions = ["findings_fts MATCH ?", "f.status = 'published'"]
@@ -282,6 +298,40 @@ class SporeIndex:
             parents = entry.get("builds_on", "").split(_LIST_SEP) if entry.get("builds_on") else []
             if finding_id in parents:
                 results.append(entry)
+        return results
+
+    def get_adoption_count(self, finding_id: str) -> int:
+        """Count how many published findings build on a given finding."""
+        rows = self.conn.execute(
+            "SELECT builds_on FROM findings WHERE builds_on LIKE ? AND status = 'published'",
+            (f"%{finding_id}%",),
+        ).fetchall()
+        # Post-filter for exact ID match within the separator-delimited field
+        count = 0
+        for row in rows:
+            parents = row["builds_on"].split(_LIST_SEP) if row["builds_on"] else []
+            if finding_id in parents:
+                count += 1
+        return count
+
+    def get_earned_significance(self, finding_id: str) -> float:
+        """Compute earned significance for a single finding."""
+        row = self.conn.execute(
+            "SELECT significance FROM findings WHERE id = ?", (finding_id,)
+        ).fetchone()
+        if row is None:
+            return 0.0
+        return compute_earned_significance(row["significance"], self.get_adoption_count(finding_id))
+
+    def _enrich_with_earned_significance(
+        self, results: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Add adoption_count and earned_significance to search results, then re-sort."""
+        for r in results:
+            count = self.get_adoption_count(r["id"])
+            r["adoption_count"] = count
+            r["earned_significance"] = compute_earned_significance(r["significance"], count)
+        results.sort(key=lambda r: r["earned_significance"], reverse=True)
         return results
 
     def stats(self) -> dict[str, Any]:

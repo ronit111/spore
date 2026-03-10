@@ -642,6 +642,24 @@ class SporeRepo:
 
         return FederationRegistry.generate_hub(name, description, peers)
 
+    def get_finding_significance(self, finding_id: str) -> dict[str, Any]:
+        """Get the earned significance for a finding.
+
+        Returns a dict with self_reported, adoption_count, and earned_significance.
+        """
+        from spore.index import compute_earned_significance
+
+        finding = self.get_finding(finding_id)
+        adoption_count = self.index.get_adoption_count(finding_id)
+        return {
+            "finding_id": finding_id,
+            "self_reported": finding.significance,
+            "adoption_count": adoption_count,
+            "earned_significance": compute_earned_significance(
+                finding.significance, adoption_count
+            ),
+        }
+
     def get_prior_art(
         self,
         direction: str,

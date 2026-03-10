@@ -139,9 +139,12 @@ def experiment_start(
         if prior:
             console.print(f"\n[bold]Prior art in [blue]{direction}[/blue]:[/bold]")
             for r in prior:
-                sig = r.get("significance", 0)
+                earned = r.get("earned_significance", r.get("significance", 0))
+                adoptions = r.get("adoption_count", 0)
+                adopt_label = f" [{adoptions} adoptions]" if adoptions else ""
+                claim_text = _truncate(r.get("claim", ""), 60)
                 console.print(
-                    f"  [cyan]{r['id']}[/cyan] (sig={sig:.1f}) {_truncate(r.get('claim', ''), 60)}"
+                    f"  [cyan]{r['id']}[/cyan] (sig={earned:.2f}{adopt_label}) {claim_text}"
                 )
             console.print("\n[dim]Use 'spore adopt <finding-id>' to build on a finding.[/dim]")
     except SporeError as e:
@@ -351,7 +354,19 @@ def finding_show(finding_id: str) -> None:
         tree.add(f"Direction: [blue]{f.direction}[/blue]")
         tree.add(f"Agent: {f.agent_id}")
         tree.add(f"Experiment: {f.experiment_id}")
-        tree.add(f"Significance: [yellow]{f.significance}[/yellow]")
+        # Compute earned significance from adoption count
+        earned_sig = f.significance
+        adoption_count = 0
+        try:
+            adoption_count = repo.index.get_adoption_count(f.id)
+            from spore.index import compute_earned_significance
+
+            earned_sig = compute_earned_significance(f.significance, adoption_count)
+        except Exception:
+            pass  # Index may not have this finding yet
+
+        sig_detail = f"self-reported: {f.significance:.1f}, adoptions: {adoption_count}"
+        tree.add(f"Significance: [yellow]{earned_sig:.2f}[/yellow] ({sig_detail})")
         tree.add(f"Status: {f.status.value}")
         tree.add(f"Timestamp: {f.timestamp.isoformat()}")
 
@@ -453,16 +468,20 @@ def discover(
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("Direction", style="blue")
     table.add_column("Sig", justify="right", style="yellow")
+    table.add_column("Adopted", justify="right", style="magenta")
     table.add_column("Agent", style="dim")
     table.add_column("Claim")
     table.add_column("Metrics", style="green")
 
     for r in results:
         metrics_str = ", ".join(f"{k}={v:.4f}" for k, v in r.get("metrics", {}).items())
+        earned = r.get("earned_significance", r.get("significance", 0))
+        adoptions = r.get("adoption_count", 0)
         table.add_row(
             r["id"],
             r["direction"],
-            f"{r.get('significance', 0):.1f}",
+            f"{earned:.2f}",
+            str(adoptions) if adoptions else "-",
             r.get("agent_id", ""),
             _truncate(r.get("claim", ""), 60),
             metrics_str or "-",

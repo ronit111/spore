@@ -619,3 +619,69 @@ class TestDiscoverRemote:
         results = spore_repo.discover_remote()
         assert len(results) == 2
         assert results[0].significance >= results[1].significance
+
+
+# ---------------------------------------------------------------------------
+# Earned significance (repo-level integration)
+# ---------------------------------------------------------------------------
+
+
+class TestEarnedSignificance:
+    def test_get_finding_significance_no_adoptions(self, spore_repo_with_finding):
+        """A finding with no adoptions returns self-reported significance."""
+        repo = spore_repo_with_finding
+        findings = repo.list_findings()
+        assert len(findings) >= 1
+        sig_info = repo.get_finding_significance(findings[0].id)
+        assert sig_info["self_reported"] == findings[0].significance
+        assert sig_info["adoption_count"] == 0
+        assert sig_info["earned_significance"] == findings[0].significance
+
+    def test_get_finding_significance_with_adoption(self, spore_repo_with_finding):
+        """After adopting a finding, its earned significance increases."""
+        repo = spore_repo_with_finding
+        findings = repo.list_findings()
+        original_finding = findings[0]
+
+        # Start a new experiment that builds on the original finding
+        exp2 = repo.start_experiment(
+            direction="follow-up",
+            hypothesis="Building on previous work",
+            builds_on=[original_finding.id],
+            create_branch=False,
+        )
+        # Publish a finding that builds on the original
+        repo.publish_finding(
+            experiment_id=exp2.id,
+            direction="follow-up",
+            claim="Extended the original finding",
+            builds_on=[original_finding.id],
+            significance=0.6,
+        )
+
+        sig_info = repo.get_finding_significance(original_finding.id)
+        assert sig_info["adoption_count"] == 1
+        assert sig_info["earned_significance"] > sig_info["self_reported"]
+
+    def test_discover_includes_earned_significance(self, spore_repo_with_finding):
+        """discover() results include earned_significance and adoption_count."""
+        repo = spore_repo_with_finding
+        results = repo.discover()
+        assert len(results) >= 1
+        for r in results:
+            assert "earned_significance" in r
+            assert "adoption_count" in r
+
+    def test_get_prior_art_includes_earned_significance(self, spore_repo_with_finding):
+        """get_prior_art() results include earned_significance."""
+        repo = spore_repo_with_finding
+        results = repo.get_prior_art(direction="attention")
+        assert len(results) >= 1
+        for r in results:
+            assert "earned_significance" in r
+            assert "adoption_count" in r
+
+    def test_get_finding_significance_nonexistent(self, spore_repo):
+        """get_finding_significance raises SporeError for missing finding."""
+        with pytest.raises(SporeError, match="not found"):
+            spore_repo.get_finding_significance("f-nonexistent")

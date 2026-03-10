@@ -580,19 +580,19 @@ class TestDirectionYamlRoundtrip:
 class TestSporeConfigCreation:
     def test_all_defaults(self):
         c = SporeConfig()
-        assert c.version == "0.3.0"
+        assert c.version == "0.4.0"
         assert c.repo_name is None
         assert c.default_direction is None
         assert c.agent_id is None
 
     def test_with_all_fields(self):
         c = SporeConfig(
-            version="0.3.0",
+            version="0.4.0",
             repo_name="my-repo",
             default_direction="attention-variants",
             agent_id="agent-42",
         )
-        assert c.version == "0.3.0"
+        assert c.version == "0.4.0"
         assert c.repo_name == "my-repo"
         assert c.default_direction == "attention-variants"
         assert c.agent_id == "agent-42"
@@ -609,13 +609,13 @@ class TestSporeConfigYamlRoundtrip:
 
     def test_full_config_roundtrip(self):
         c = SporeConfig(
-            version="0.3.0",
+            version="0.4.0",
             repo_name="my-repo",
             default_direction="attention-variants",
             agent_id="agent-42",
         )
         c2 = SporeConfig.from_yaml(c.to_yaml())
-        assert c2.version == "0.3.0"
+        assert c2.version == "0.4.0"
         assert c2.repo_name == "my-repo"
         assert c2.default_direction == "attention-variants"
         assert c2.agent_id == "agent-42"
@@ -628,16 +628,16 @@ class TestSporeConfigYamlRoundtrip:
     def test_from_yaml_empty_string(self):
         # Empty YAML parses to None; from_yaml handles this gracefully
         c = SporeConfig.from_yaml("")
-        assert c.version == "0.3.0"
+        assert c.version == "0.4.0"
 
     def test_from_yaml_none_content(self):
         c = SporeConfig.from_yaml("~\n")  # YAML null
-        assert c.version == "0.3.0"
+        assert c.version == "0.4.0"
 
     def test_version_default_preserved(self):
         c = SporeConfig(repo_name="test")
         c2 = SporeConfig.from_yaml(c.to_yaml())
-        assert c2.version == "0.3.0"
+        assert c2.version == "0.4.0"
 
 
 # ---------------------------------------------------------------------------

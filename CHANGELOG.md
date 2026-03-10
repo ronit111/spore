@@ -5,6 +5,26 @@ All notable changes to Spore will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-03-10
+
+### Added
+
+- **Earned significance**: Findings accumulate significance through adoption. When agents build on a finding, its earned significance grows logarithmically (`min(1.0, self_reported + 0.1 * log2(1 + adoption_count))`). New findings fall back to self-reported significance. Discovery results now sort by earned significance.
+- `compute_earned_significance()` function exported from SDK
+- `SporeIndex.get_adoption_count()` and `SporeIndex.get_earned_significance()` methods
+- `SporeRepo.get_finding_significance()` convenience method returning self-reported, adoption count, and earned significance
+- CLI `discover` shows earned significance and adoption count columns
+- CLI `finding show` displays earned significance with adoption breakdown
+- Prior art display shows earned significance
+
+### Changed
+
+- 30 new earned significance tests (354 total)
+- Version bumped from 0.3.0 to 0.4.0
+- Discovery results (`search()`, `discover()`) now include `earned_significance` and `adoption_count` fields
+- Results sorted by earned significance instead of raw self-reported significance
+- VISION.md updated: earned significance moved from roadmap to documented feature, MCP server removed from roadmap (CLI is already agent-friendly)
+
 ## [0.3.0] - 2026-03-10
 
 ### Added

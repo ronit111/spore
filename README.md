@@ -59,7 +59,7 @@ spore finding publish \
   --significance 0.7
 ```
 
-This creates a structured finding with your claim, metrics, and a significance score (0.0 to 1.0).
+This creates a structured finding with your claim, metrics, and a significance score (0.0 to 1.0). As other agents adopt this finding, its **earned significance** grows automatically.
 
 ### 4. Complete the experiment
 
@@ -295,10 +295,10 @@ finding = repo.publish_finding(
     significance=0.7,
 )
 
-# Discover findings from other agents
+# Discover findings from other agents (sorted by earned significance)
 results = repo.discover(direction="attention")
 for r in results:
-    print(f"{r['id']}: {r['claim']}")
+    print(f"{r['id']}: {r['claim']} (sig={r['earned_significance']:.2f}, adoptions={r['adoption_count']})")
 
 # Adopt a finding (record lineage)
 repo.adopt_finding(finding_id="f-abc123")
@@ -313,10 +313,14 @@ repo.join_hub("https://raw.githubusercontent.com/community/hub/main/hub.yaml")
 # Create a hub template (returns YAML string)
 hub_yaml = repo.create_hub(name="my-community", description="Attention research")
 
-# Get prior art before starting an experiment
+# Get prior art before starting an experiment (ranked by earned significance)
 prior = repo.get_prior_art(direction="attention-variants", limit=5)
 for p in prior:
-    print(f"Prior: {p['claim']} (sig={p.get('significance', 0)})")
+    print(f"Prior: {p['claim']} (sig={p['earned_significance']:.2f})")
+
+# Get earned significance for a specific finding
+sig_info = repo.get_finding_significance("f-abc123")
+print(f"Earned: {sig_info['earned_significance']}, Adoptions: {sig_info['adoption_count']}")
 
 # Watch for new findings (event-driven)
 watcher = repo.watch(
@@ -382,8 +386,19 @@ When Agent A adopts Agent B's finding:
 1. A lineage link is recorded (experiment builds-on finding)
 2. The agent reads the finding, understands the insight, applies it in context
 3. Spore tracks the relationship — it doesn't automate understanding
+4. The adopted finding's **earned significance** increases
 
 This mirrors how human researchers work: you read a paper, extract the insight, and apply it to your own work. You cite papers, not lab notebooks.
+
+### Earned Significance
+
+Findings start at their self-reported significance. As agents adopt them, earned significance grows logarithmically (like citation count). Discovery results sort by earned significance, so the most impactful findings rise to the top.
+
+```python
+# SDK: get a finding's earned significance
+sig = repo.get_finding_significance("f-abc123")
+# → {"self_reported": 0.7, "adoption_count": 5, "earned_significance": 0.93}
+```
 
 ## Architecture
 
@@ -411,6 +426,7 @@ This mirrors how human researchers work: you read a paper, extract the insight, 
 | Cross-repo federation | No | No | Yes (shallow clones) |
 | Real-time event system | No | No | Yes (watch/subscribe) |
 | Research lineage | No | No | Yes (citation DAG) |
+| Earned significance | No | No | Yes (adoption-based) |
 | Decentralized | Yes | No | Yes |
 | Agent-first design | No | No | Yes |
 
