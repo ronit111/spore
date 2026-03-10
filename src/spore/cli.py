@@ -133,6 +133,17 @@ def experiment_start(
                 border_style="blue",
             )
         )
+
+        # Surface prior art — show what other agents found in this direction
+        prior = repo.get_prior_art(direction=direction, limit=5)
+        if prior:
+            console.print(f"\n[bold]Prior art in [blue]{direction}[/blue]:[/bold]")
+            for r in prior:
+                sig = r.get("significance", 0)
+                console.print(
+                    f"  [cyan]{r['id']}[/cyan] (sig={sig:.1f}) {_truncate(r.get('claim', ''), 60)}"
+                )
+            console.print("\n[dim]Use 'spore adopt <finding-id>' to build on a finding.[/dim]")
     except SporeError as e:
         err_console.print(f"[red]Error:[/red] {e}")
         sys.exit(1)
@@ -546,6 +557,52 @@ def direction_list() -> None:
 @main.group()
 def federation() -> None:
     """Manage federation with other Spore repositories."""
+
+
+@federation.command("join")
+@click.argument("hub_url")
+def federation_join(hub_url: str) -> None:
+    """Join a federation hub.
+
+    Fetches the hub YAML and registers all listed peers. One command
+    to join an entire research community. Future syncs will re-fetch
+    the hub to pick up new peers automatically.
+    """
+    repo = get_repo()
+    try:
+        with console.status("[bold blue]Fetching hub..."):
+            added = repo.join_hub(hub_url)
+        if added:
+            console.print(f"[green]Joined hub:[/green] {len(added)} peers added")
+            for p in added:
+                console.print(f"  {p['name']} ({p['url']})")
+        else:
+            console.print("[dim]Hub fetched but no new peers to add.[/dim]")
+    except SporeError as e:
+        err_console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@federation.command("create-hub")
+@click.option("--name", "-n", required=True, help="Hub community name.")
+@click.option("--description", "-d", default="", help="Hub description.")
+@click.option("--output", "-o", type=click.Path(), help="Write to file instead of stdout.")
+def federation_create_hub(name: str, description: str, output: str | None) -> None:
+    """Generate a hub YAML template.
+
+    Creates a hub file that other repos can join with `spore federation join`.
+    Host this file anywhere accessible via URL (GitHub raw, gist, HTTP server).
+    """
+    repo = get_repo()
+    hub_yaml = repo.create_hub(name=name, description=description)
+
+    if output:
+        from pathlib import Path
+
+        Path(output).write_text(hub_yaml)
+        console.print(f"[green]Hub written to:[/green] {output}")
+    else:
+        console.print(hub_yaml)
 
 
 @federation.command("add")

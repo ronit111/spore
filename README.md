@@ -113,7 +113,24 @@ spore federation discover
 spore discover --federated --direction "attention"
 ```
 
-### 8. Watch for new findings
+### 8. Join a federation hub
+
+Instead of adding peers one by one, join an entire research community with one command:
+
+```bash
+# Join a hub — registers all listed peers at once
+spore federation join https://raw.githubusercontent.com/community/hub/main/hub.yaml
+
+# Future syncs automatically re-fetch the hub to pick up new peers
+spore federation sync
+
+# Create your own hub
+spore federation create-hub --name "my-community" --output hub.yaml
+```
+
+Host the hub file anywhere accessible via URL (GitHub raw, gist, HTTP server). See [VISION.md](VISION.md) for how federation scales from direct peers to hubs to large communities.
+
+### 9. Watch for new findings
 
 React to discoveries as they happen instead of polling manually:
 
@@ -132,7 +149,7 @@ watcher = repo.watch(callback=on_discovery, direction="attention")
 # watcher.stop() when done
 ```
 
-### 9. Monitor the research landscape
+### 10. Monitor the research landscape
 
 ```bash
 # Repository overview
@@ -191,6 +208,8 @@ spore discover [--direction <dir>] [--query <text>] [--agent <id>]
   [--min-significance <n>] [--limit <n>] [--remote] [--federated]
 ```
 
+The `--federated` flag syncs all federation peers before searching. If a hub is configured (via `federation join`), it re-fetches the hub first to pick up new peers automatically.
+
 ### `spore federation`
 
 Manage cross-repo federation with other Spore repositories.
@@ -201,7 +220,13 @@ spore federation remove <url>
 spore federation list
 spore federation sync
 spore federation discover [--direction <dir>] [--limit <n>]
+spore federation join <hub-url>
+spore federation create-hub --name <name> [--description <text>] [--output <path>]
 ```
+
+`federation join` fetches a hub YAML file and registers all listed peers in one command. The hub URL is stored so that future `federation sync` calls (and `discover --federated`) re-fetch it automatically, picking up any new peers added to the hub.
+
+`federation create-hub` generates a hub YAML template. If your repo has a remote, it includes itself as the first peer. Host the output anywhere accessible via URL.
 
 ### `spore watch`
 
@@ -281,6 +306,17 @@ repo.adopt_finding(finding_id="f-abc123")
 # Federation: connect to peer repos
 repo.add_peer("https://github.com/lab-a/experiments.git")
 federated = repo.discover_federated(direction="attention")
+
+# Join a federation hub (registers all peers in one call)
+repo.join_hub("https://raw.githubusercontent.com/community/hub/main/hub.yaml")
+
+# Create a hub template (returns YAML string)
+hub_yaml = repo.create_hub(name="my-community", description="Attention research")
+
+# Get prior art before starting an experiment
+prior = repo.get_prior_art(direction="attention-variants", limit=5)
+for p in prior:
+    print(f"Prior: {p['claim']} (sig={p.get('significance', 0)})")
 
 # Watch for new findings (event-driven)
 watcher = repo.watch(
@@ -385,6 +421,8 @@ This mirrors how human researchers work: you read a paper, extract the insight, 
 3. **Decentralized** — No central coordinator. Agents publish; others discover.
 4. **Semantic, not syntactic** — Adoption is understanding, not merging. Spore tracks lineage; the agent provides intelligence.
 5. **Scales from 1 to 1,000** — Solo researcher or research community. Same protocol.
+
+For the full philosophy, federation scaling model, and roadmap, see [VISION.md](VISION.md).
 
 ## Inspired By
 

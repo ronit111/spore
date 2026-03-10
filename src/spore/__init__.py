@@ -20,7 +20,7 @@ other's findings through a Git-native, decentralized protocol.
     results = repo.discover(direction="attention")
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from spore.federation import FederationPeer, FederationRegistry
 from spore.models import (

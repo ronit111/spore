@@ -598,6 +598,64 @@ class SporeRepo:
     # Federation
     # ------------------------------------------------------------------
 
+    def join_hub(self, hub_url: str) -> list[dict[str, str]]:
+        """Join a federation hub.
+
+        Fetches the hub YAML, registers all listed peers, and stores the
+        hub URL so future syncs re-fetch it automatically. One command
+        to join an entire research community.
+        """
+        self._ensure_initialized()
+        added = self.federation.join_hub(hub_url)
+
+        # Stage federation file
+        fed_path = self.spore_dir / "federation.yaml"
+        if fed_path.exists():
+            self.git_repo.index.add([str(fed_path)])
+            self._try_commit(f"spore: join federation hub ({len(added)} peers)")
+
+        return [{"id": p.id, "name": p.name, "url": p.url} for p in added]
+
+    def create_hub(
+        self,
+        name: str,
+        description: str = "",
+        include_self: bool = True,
+    ) -> str:
+        """Generate a hub YAML template.
+
+        Returns the YAML string. If include_self is True and this repo has
+        a remote, includes it as the first peer.
+        """
+        peers: list[dict[str, Any]] = []
+        if include_self:
+            try:
+                remote_url = self.git_repo.remotes.origin.url
+                peers.append(
+                    {
+                        "url": remote_url,
+                        "name": self.config.repo_name or self.path.name,
+                    }
+                )
+            except (IndexError, ValueError):
+                pass  # No remote configured
+
+        return FederationRegistry.generate_hub(name, description, peers)
+
+    def get_prior_art(
+        self,
+        direction: str,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Get relevant prior findings for a research direction.
+
+        Searches the local index (including any federated findings already
+        synced) for findings in the given direction. This is the
+        'standing on shoulders' feature — see what others have found
+        before starting your own work.
+        """
+        return self.discover(direction=direction, limit=limit)
+
     def add_peer(
         self,
         url: str,

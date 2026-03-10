@@ -5,8 +5,18 @@ findings. This is the "SETI@home for research" layer — a decentralized
 network of Spore-enabled repos that share knowledge without a central
 coordinator.
 
+Supports two federation modes:
+1. **Direct peers** — manually added with `federation add <url>`
+2. **Hub** — join a community with `federation join <hub-url>`,
+   which auto-discovers all peers listed in the hub.
+
 Usage:
+    # Direct peer
     repo.add_peer("https://github.com/lab-a/experiments.git")
+
+    # Hub (one command to join a whole community)
+    repo.join_hub("https://raw.githubusercontent.com/org/hub/main/hub.yaml")
+
     repo.sync_peers()
     results = repo.discover_federated(direction="attention")
 """
@@ -16,6 +26,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import shutil
+import urllib.error
+import urllib.request
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -84,12 +96,20 @@ class FederationRegistry:
         self.federation_path = spore_dir / FEDERATION_FILE
         self.cache_dir = spore_dir / PEER_CACHE_DIR
         self._peers: list[FederationPeer] | None = None
+        self._hub_url: str | None = None
 
     @property
     def peers(self) -> list[FederationPeer]:
         if self._peers is None:
             self._peers = self._load_peers()
         return self._peers
+
+    @property
+    def hub_url(self) -> str | None:
+        """The hub URL this registry is subscribed to, if any."""
+        if self._hub_url is None:
+            self._hub_url = self._load_hub_url()
+        return self._hub_url
 
     def _load_peers(self) -> list[FederationPeer]:
         if not self.federation_path.exists():
@@ -99,12 +119,23 @@ class FederationRegistry:
             return []
         return [FederationPeer.from_dict(p) for p in data["peers"]]
 
-    def _save_peers(self) -> None:
-        data = {
-            "version": "1",
-            "peers": [p.to_dict() for p in self.peers],
-        }
+    def _load_hub_url(self) -> str | None:
+        if not self.federation_path.exists():
+            return None
+        data = yaml.safe_load(self.federation_path.read_text())
+        if not data:
+            return None
+        return data.get("hub")
+
+    def _save(self) -> None:
+        data: dict[str, Any] = {"version": "1"}
+        if self._hub_url:
+            data["hub"] = self._hub_url
+        data["peers"] = [p.to_dict() for p in self.peers]
         self.federation_path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+
+    def _save_peers(self) -> None:
+        self._save()
 
     def add_peer(
         self,
@@ -143,6 +174,81 @@ class FederationRegistry:
     def list_peers(self) -> list[FederationPeer]:
         """List all registered peers."""
         return list(self.peers)
+
+    # ------------------------------------------------------------------
+    # Hub
+    # ------------------------------------------------------------------
+
+    def join_hub(self, hub_url: str) -> list[FederationPeer]:
+        """Join a federation hub.
+
+        Fetches the hub YAML, registers all listed peers, and stores the
+        hub URL so future syncs re-fetch it automatically.
+
+        Args:
+            hub_url: URL to a hub YAML file (HTTP/HTTPS or file://).
+
+        Returns:
+            List of peers added from the hub.
+        """
+        hub_peers = self._fetch_hub(hub_url)
+        self._hub_url = hub_url
+
+        added: list[FederationPeer] = []
+        for peer in hub_peers:
+            existing = next((p for p in self.peers if p.url == peer.url), None)
+            if not existing:
+                self.peers.append(peer)
+                added.append(peer)
+
+        self._save()
+        return added
+
+    def refresh_hub(self) -> list[FederationPeer]:
+        """Re-fetch the hub and merge any new peers.
+
+        Returns newly added peers. If no hub is configured, returns [].
+        """
+        if not self.hub_url:
+            return []
+        return self.join_hub(self.hub_url)
+
+    @staticmethod
+    def _fetch_hub(hub_url: str) -> list[FederationPeer]:
+        """Fetch and parse a hub YAML from a URL."""
+        try:
+            with urllib.request.urlopen(hub_url, timeout=15) as resp:  # noqa: S310
+                raw = resp.read().decode("utf-8")
+        except (urllib.error.URLError, OSError) as e:
+            logger.warning("Failed to fetch hub %s: %s", hub_url, e)
+            return []
+
+        data = yaml.safe_load(raw)
+        if not data or "peers" not in data:
+            logger.warning("Hub %s has no peers list", hub_url)
+            return []
+
+        return [FederationPeer.from_dict(p) for p in data["peers"]]
+
+    @staticmethod
+    def generate_hub(
+        name: str,
+        description: str = "",
+        peers: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Generate a hub YAML template.
+
+        Returns YAML string suitable for hosting as a hub file.
+        """
+        data: dict[str, Any] = {"name": name}
+        if description:
+            data["description"] = description
+        data["peers"] = peers or []
+        return yaml.dump(data, default_flow_style=False, sort_keys=False)
+
+    # ------------------------------------------------------------------
+    # Sync
+    # ------------------------------------------------------------------
 
     def sync_peer(self, peer: FederationPeer) -> Path:
         """Clone or update a peer's cached repository.
@@ -186,7 +292,13 @@ class FederationRegistry:
         return cache_path
 
     def sync_all(self) -> dict[str, Path]:
-        """Sync all peers. Returns mapping of peer name to cache path."""
+        """Sync all peers. Returns mapping of peer name to cache path.
+
+        If a hub is configured, re-fetches it first to pick up new peers.
+        """
+        # Refresh hub to discover newly added peers
+        self.refresh_hub()
+
         results: dict[str, Path] = {}
         for peer in self.peers:
             try:
